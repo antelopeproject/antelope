@@ -49,7 +49,7 @@ class OnlineServer:
         self.write = 0
         self.ccName = ccName
         self.sigma = 1
-        self.threadPool = ThreadPoolExecutor(max_workers=4)
+        self.threadPool = ThreadPoolExecutor(max_workers=6)
         self.staticCount = 20
         self.trainLawData = {}
         self.flowStaticData = {}

@@ -5,22 +5,19 @@
 import subprocess
 import numpy as np
 import threading
+import time
 import datetime
 import socket
-# import ModelTrain
 import pickle
 import struct
+import copy
 from ctypes import *
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 lock = threading.Lock()
-
 ipCongMap = {}
 alf = 0.9
-timeIndex = 0
-timeMax = 1000
 timeInterval = 1
-maxPactingRate = 4294967295
 
 
 class OnlineServer:
@@ -31,13 +28,14 @@ class OnlineServer:
         self.write = 0
         self.ccName = ccName
         self.sigma = 1
+        self.staticCount = 100
         self.trainLawData = {}
         self.flowStaticData = {}
-        # self.changeCong = CDLL('./test.so')
+        self.flowStaticData[0] = {}
+        self.changeCong = CDLL('./transfer_cc.so')
 
     def runTshark(self):
-        ## -l 很重要，表示每个包都会output
-        cmd = ['/usr/src/qiuxinyi/python/mytcpack.py']
+        cmd = ['/usr/src/python/mytcpack.py']
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
         while True:
@@ -49,7 +47,6 @@ class OnlineServer:
                 if not line:
                     None
                 else:
-                    # print ("\nline: write: \n", line, self.write)
                     if self.write < self.bufferSize:
                         self.buffer.append(line)
                         self.write += 1
@@ -57,17 +54,16 @@ class OnlineServer:
                         index = self.write % self.bufferSize
                         self.buffer[index] = line
                         self.write += 1
-                    # print "\nwrite: " + str(self.write)
             except Exception as e:
                 print("run shell error" + str(e))
 
     def getData(self, line):
         data = {}
         param = line.split(";")
-        #:qprint("param: " + str(param))
         data['Destination'] = param[3]
         data['Source'] = param[1]
-        data['Time'] = int(param[0])
+        data['time'] = int(param[0])
+        data['delivered'] = param[18]
         data['rtt'] = int(param[5])
         data['mdevRtt'] = int(param[6])
         data['minRtt'] = int(param[7])
@@ -97,81 +93,127 @@ class OnlineServer:
     def readPacketData(self):
 
         while True:
-            # 定义一个空字典
-            # print(str(self.read)+"  write: "+str(self.write))
             if self.read < self.write:
                 line = self.buffer[self.read % self.bufferSize]
                 readData = self.getData(line)
                 key = readData['port']
                 self.read += 1
-                # print ("\n\n" + str(self.read) + "readData: " + str(readData))
-                # 组合数据
                 try:
                     if key not in self.flowStaticData:
-                        flowStatic = {}
-                        flowStatic['time'] = []
-                        flowStatic['bytesInFlight'] = []
-                        flowStatic['rcvBuf'] = []
-                        flowStatic['sndBuf'] = []
-                        flowStatic['pacing_rate'] = []
-                        flowStatic['max_pacing_rate'] = 0
-                        flowStatic['sndCwnd'] = []
-                        flowStatic['rtt'] = []
-                        flowStatic["retrans"] = 0
-                        flowStatic["lost"] = 0
-                        flowStatic["maxRTT"] = 0
-                        flowStatic['minRTT'] = 0
-                        flowStatic['mdevRTT'] = 0
-                        flowStatic['number'] = 0
-                        flowStatic['beginTime'] = readData['Time']
-                        self.flowStaticData[key] = flowStatic
-
+                        self.flowStaticData[key] = self.newFlowStaticData()
+                        t = time.time()
+                        self.flowStaticData[key]['beginTime'] = int(round(t * 1000))
                     elif readData['status'].__contains__("LAST_ACK"):
-                        print("\nenter last ack")
-                        data = self.calTrainData(key)
-                        self.trainLawData[key] = data
-                        # TODO 判断是否有优化趋势
-                        self.trainLawData[key]['result'] = self.calReward(data)
-                        print("\ntrain" + str(self.trainLawData[key]))
+                        print("enter last")
+                        self.flowStaticData[key]['last'] = True
+                        t = time.time()
+                        self.flowStaticData[key]['time'] = int(round(t * 1000))
+
+                        self.intervalAction(self.flowStaticData[key]['countIndex'], key)
                         del self.flowStaticData[key]
 
-                    if key in self.flowStaticData:
-                        self.flowStaticData[key]['time'].append(int(readData['Time']))
+                    elif key in self.flowStaticData:
+                        self.flowStaticData[key]['delivered'].append(int(readData['delivered']))
                         self.flowStaticData[key]['rcvBuf'].append(int(readData['rcv_buf']))
                         self.flowStaticData[key]['sndBuf'].append(int(readData['snd_buf']))
                         self.flowStaticData[key]['sndCwnd'].append(int(readData['snd_cwnd']))
                         self.flowStaticData[key]['rtt'].append(int(readData['rtt']))
-
+                        self.flowStaticData[key]['Destination'] = readData['Destination']
                         self.flowStaticData[key]['minRTT'] = readData['minRtt']
-                        if int(self.flowStaticData[key]['maxRTT']) < int(readData['rtt']):
-                            self.flowStaticData[key]['maxRTT'] = readData['rtt']
-
                         self.flowStaticData[key]['mdevRTT'] = readData['mdevRtt']
                         self.flowStaticData[key]['bytesInFlight'].append(int(readData['bytes_in_flight']))
                         self.flowStaticData[key]['lost'] = readData['lost']
                         self.flowStaticData[key]['retrans'] = readData['retrans']
                         self.flowStaticData[key]['pacing_rate'].append(int(readData['pacing_rate']))
-                        if int(readData['pacing_rate']) != maxPactingRate and self.flowStaticData[key][
-                            'max_pacing_rate'] < int(readData['pacing_rate']):
-                            self.flowStaticData[key]['max_pacing_rate'] = int(readData['pacing_rate'])
+                        self.flowStaticData[key]['max_pacing_rate'] = int(readData['max_pacing_rate'])
                         self.flowStaticData[key]['number'] += 1
+                        if self.flowStaticData[key]['number'] > self.staticCount:
+                            t = time.time()
+                            self.flowStaticData[key]['time'] = int(round(t * 1000))
+                            countIndex = self.flowStaticData[key]['countIndex']
+                            self.intervalAction(countIndex, key)
+                            self.flowStaticData[key] = self.newFlowStaticData()
+                            countIndex += 1
+                            self.flowStaticData[key]['countIndex'] = countIndex
 
                 except Exception as e:
                     print("error: " + str(e))
 
-    def calTrainData(self, key):
+    def newFlowStaticData(self):
+        flowStaticPerData = {}
+        flowStaticPerData['time'] = 0
+        flowStaticPerData['delivered'] = []
+        flowStaticPerData['Destination'] = ""
+        flowStaticPerData['bytesInFlight'] = []
+        flowStaticPerData['rcvBuf'] = []
+        flowStaticPerData['sndBuf'] = []
+        flowStaticPerData['pacing_rate'] = []
+        flowStaticPerData['countIndex'] = 0
+        flowStaticPerData['max_pacing_rate'] = 0
+        flowStaticPerData['sndCwnd'] = []
+        flowStaticPerData['rtt'] = []
+        flowStaticPerData["retrans"] = 0
+        flowStaticPerData["lost"] = 0
+        flowStaticPerData["maxRTT"] = 0
+        flowStaticPerData['minRTT'] = 0
+        flowStaticPerData['mdevRTT'] = 0
+        flowStaticPerData['number'] = 0
+        flowStaticPerData['beginTime'] = 0
+        return flowStaticPerData
+
+    def intervalAction(self, countIndex, key):
+        preCountIndex = countIndex - 1
+        preTrainKey = key + "_" + str(preCountIndex)
+        preTrainData = None
+        if preTrainKey in self.trainLawData:
+            preTrainData = self.trainLawData[preTrainKey]
+        data = self.calTrainData(key, preTrainData)
+        print("countIndex: " + str(countIndex))
+        beta = 512
+        if countIndex < 9:
+            beta = pow(2, countIndex)
+           
+        rtt = data['meanRTT']
+        if data['minRTT'] * beta > data['meanRTT']:
+            rtt = data['minRTT'] 
+            
+        if "last" not in self.flowStaticData[key]:
+            trainKey = key + "_" + str(countIndex)
+            self.trainLawData[trainKey] = data
+            self.trainLawData[trainKey]['rtt'] = rtt
+        
+        if preTrainKey in self.trainLawData:
+            reward= self.calReward(data, rtt)
+            self.trainLawData[preTrainKey]['result'] = reward
+            print("\nreward: " + str(reward))
+
+    def calTrainData(self, key, preData):
         result = {}
         byteInFlight = self.flowStaticData[key]['bytesInFlight']
         rcvBuf = self.flowStaticData[key]['rcvBuf']
         sndBuf = self.flowStaticData[key]['sndBuf']
         sndCwnd = self.flowStaticData[key]['sndCwnd']
+        maxDev = np.max(self.flowStaticData[key]['delivered'])
+
+        if preData is None:
+            transTime = self.flowStaticData[key]['time'] - self.flowStaticData[key]['beginTime']
+            delivered = maxDev
+            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(self.flowStaticData[key]['beginTime']))
+        else:
+            transTime = self.flowStaticData[key]['time'] - preData['time']
+            delivered = maxDev - preData['delivered']
+            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(preData['time']))
+
+        if transTime == 0:
+            throughput = float(delivered)
+        else:
+            throughput = float(delivered) / float(transTime)
+        print(" transTime" + str(transTime) + " delivered" + str(delivered) + " through: " + str(throughput))
+        result['Destination'] = self.flowStaticData[key]['Destination']
         result['minByte'] = np.min(byteInFlight)
         result['maxByte'] = np.max(byteInFlight)
         result['stdByte'] = np.std(byteInFlight)
         result['meanPacingRate'] = np.mean(self.flowStaticData[key]['pacing_rate'])
-        result['maxPacingRate'] = self.flowStaticData[key]['max_pacing_rate']
-        if result['maxPacingRate'] == 0:
-            result['maxPacingRate'] = maxPactingRate
         result['minRcvBuf'] = np.min(rcvBuf)
         result['maxRcvBuf'] = np.max(rcvBuf)
         result['stdRcvBuf'] = np.std(rcvBuf)
@@ -184,45 +226,41 @@ class OnlineServer:
         result['maxSndCwnd'] = np.max(sndCwnd)
         result['stdSndCwnd'] = np.std(sndCwnd)
         result['meanSndCwnd'] = np.mean(sndCwnd)
+        result['time'] = self.flowStaticData[key]['time']
+        result['delivered'] = maxDev
         result['meanRTT'] = np.mean(self.flowStaticData[key]['rtt'])
         result["maxRTT"] = self.flowStaticData[key]['maxRTT']
         result['minRTT'] = self.flowStaticData[key]['minRTT']
         result['mdevRTT'] = self.flowStaticData[key]['mdevRTT']
         result['retrans'] = self.flowStaticData[key]['retrans']
         result['lost'] = self.flowStaticData[key]['lost']
+        result['throughput'] = throughput
+        if preData is None or throughput > preData['maxThroughput']:
+            result['maxThroughput'] = throughput
+        else:
+            result['maxThroughput'] = preData['maxThroughput']
         return result
 
     def bashWriteTrainData(self):
         lock.acquire()
-        print("\nenter: " + str(self.trainLawData))
         trainData = []
         delKeys = []
-        for key in self.trainLawData:
+        keys = copy.deepcopy(list(self.trainLawData.keys()))
+
+        for key in keys:
             if "result" not in self.trainLawData[key].keys() or self.trainLawData[key]['result'] == '':
                 continue
-            print("trainData: " + str(self.trainLawData[key]))
             delKeys.append(key)
             data = self.trainLawData[key]
-            termTrainData = [data['minByte'], data['maxByte'], data['stdByte'],
-                             int(data['maxRTT']),
-                             int(data['minRTT']), float(data['mdevRTT']), float(data['meanRTT']),
-                             int(data['retrans']),
-                             int(data['lost']), int(data['minByte']), int(data['maxByte']),
-                             float(data['stdByte']), int(data['minRcvBuf']), int(data['maxRcvBuf'])
-                , float(data['stdRcvBuf']), float(data['meanRcvBuf']), int(data['minSndBuf']),
-                             int(data['maxSndBuf']), float(data['stdSndBuf']), float(data['meanSndBuf'])
-                , int(data['minSndCwnd']), int(data['maxSndCwnd']), float(data['stdSndCwnd']),
-                             float(data['meanSndCwnd']), float(data['meanPacingRate']), int(data['maxPacingRate']),
+            termTrainData = [int(data['minRTT']), float(data['mdevRTT']), float(data['meanRTT']),float(data['rtt']),
+                             float(data['throughput']),float(data['lost']),float(data['meanPacingRate']),
                              float(data['result'])]
 
             trainData.append(termTrainData)
 
-        print("\nnewtrainData1: " + str(trainData))
-        # 输出到文件中
         if (trainData.__len__() > 0):
             now = datetime.datetime.now()
-            fileName = (now + datetime.timedelta(hours=-1)).strftime("%H:00:00")
-            fileName = "/usr/src/qiuxinyi/python/data_" + self.ccName
+            fileName = "/usr/src/python/traindata/ndata_" + self.ccName
             self.writeData(fileName, trainData)
         print("write end " + str(delKeys))
         for key in delKeys:
@@ -230,9 +268,10 @@ class OnlineServer:
             del self.trainLawData[key]
         lock.release()
 
-    def calReward(self, trainData):
-        reward = ((trainData['meanPacingRate'] - self.sigma * trainData['lost']) / trainData['meanRTT']) / (
-                trainData['maxPacingRate'] / trainData['minRTT'])
+    def calReward(self, trainData, rtt):
+        print(" meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
+            trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
+        reward = ((trainData['throughput']) * trainData['minRTT']) / rtt
         return reward
 
     def writeData(self, path, data):
@@ -249,7 +288,7 @@ class OnlineServer:
     def scheduleWriteJob(self):
 
         scheduler = BlockingScheduler()
-        scheduler.add_job(self.bashWriteTrainData, 'interval', seconds=60, id='createData')
+        scheduler.add_job(self.bashWriteTrainData, 'interval', seconds=30, id='createData')
         scheduler.start()
 
 
@@ -275,7 +314,7 @@ def writeTrainData(path, object):
     object.bashWriteTrainData(path)
 
 
-online = OnlineServer(200, "bbr")
+online = OnlineServer(200, "c2tcp")
 tshark = tSharkThread(online)
 read = readThread(online)
 tshark.start()

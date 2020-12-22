@@ -7,26 +7,21 @@ import numpy as np
 import pickle
 import datetime
 
-DATAPATH = "C:\Users\HP\Desktop\trainData.txt"
-MODELPATH = "C:\Users\HP\Desktop\XXX.pickle"
+DATAPATH = "/usr/src/python/traindata/data.txt"
+MODELPATH = "/usr/src/python/traindata/XXX.pickle"
 
 
 def loadData(dir):
-    now = datetime.datetime.now()
-
     data = []
     target = []
-    for i in range(1, 25):
-        if i == 24:
-            i = 1
-        fileName = dir
-        try:
-            rawData = np.loadtxt(fileName)
-            for item in rawData:
-                data.append(item[:-1])
-                target.append(item[-1])
-        except  Exception as e:
-            continue
+    fileName = dir
+    try:
+        rawData = np.loadtxt(fileName)
+        for item in rawData:
+            data.append(item[:-1])
+            target.append(item[-1])
+    except  Exception as e:
+        pass
 
     return np.array(data), np.array(target)
 
