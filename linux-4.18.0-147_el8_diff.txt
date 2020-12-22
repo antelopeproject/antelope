@@ -1,0 +1,37 @@
+/include/uapi/linux/bpf.h 
+
+2900a2901,2903
+>       BPF_SOCK_OPS_TCP_ACK_CB,
+>       BPF_SOCK_OPS_TCL_CLOSE_CB,
+>       BPF_BBR_ENTER,
+
+
+
+/net/ipv4/tcp.c
+1445a1446
+>       tcp_call_bpf(sk, BPF_SOCK_OPS_TCP_ACK_CB, 0, NULL);
+1940a1942
+>       tcp_call_bpf(sk, BPF_SOCK_OPS_TCP_ACK_CB, 0, NULL);
+2278c2280
+<
+---
+>         tcp_call_bpf(sk, BPF_SOCK_OPS_TCL_CLOSE_CB, 0, NULL);
+3053a3056,3072
+>       /*C2TCP: PARAMETERS*/
+>         case TCP_C2TCP_ENABLE:
+>                 net->ipv4.sysctl_tcp_c2tcp_enable = val;
+>                 break;
+>         case TCP_C2TCP_INTERVAL:
+>                 net->ipv4.sysctl_tcp_c2tcp_interval= val;
+>                 break;
+>         case TCP_C2TCP_TARGET:
+>                 net->ipv4.sysctl_tcp_c2tcp_target= val;
+>                 break;
+>         case TCP_C2TCP_ALPHA:
+>                 net->ipv4.sysctl_tcp_c2tcp_alpha= val;
+>                 break;
+>         case TCP_C2TCP_X:
+>                 net->ipv4.sysctl_tcp_c2tcp_x= val;
+>                 break;
+>
+
