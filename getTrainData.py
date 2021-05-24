@@ -272,7 +272,7 @@ class OnlineServer:
     def calReward(self, trainData, rtt):
         print("lost: " + str(trainData['lost']) + " meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
             trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
-        reward = ((trainData['throughput'] * 1000 - 5 * trainData['lost']) * trainData['minRTT']) / rtt
+        reward = ((trainData['throughput'] * 1000 - trainData['lost']) * trainData['minRTT']) / rtt
         return reward
 
     def writeData(self, path, data):
