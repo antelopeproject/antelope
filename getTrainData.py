@@ -79,25 +79,16 @@ class OnlineServer:
         data['max_pacing_rate'] = param[17]
         return data
 
-    def calIPPred(self, ipKey, val):
-        congVal = ipCongMap.get(ipKey, [0, 0, 0, 0])
-        for index in range(len(congVal)):
-            congVal[index] *= alf
-        congVal[val] += 1
-        ipCongMap[ipKey] = congVal
-        predic = int(congVal.index(max(congVal)))
-        print("ipKey: " + str(ipKey) + " ip predic: " + str(predic))
-        print(str(ipCongMap))
-        return predic
-
     def readPacketData(self):
 
         while True:
+
             if self.read < self.write:
                 line = self.buffer[self.read % self.bufferSize]
                 readData = self.getData(line)
                 key = readData['port']
                 self.read += 1
+
                 try:
                     if key not in self.flowStaticData:
                         self.flowStaticData[key] = self.newFlowStaticData()
@@ -161,6 +152,7 @@ class OnlineServer:
         flowStaticPerData['beginTime'] = 0
         return flowStaticPerData
 
+
     def intervalAction(self, countIndex, key):
         preCountIndex = countIndex - 1
         preTrainKey = key + "_" + str(preCountIndex)
@@ -172,18 +164,18 @@ class OnlineServer:
         beta = 512
         if countIndex < 9:
             beta = pow(2, countIndex)
-           
+
         rtt = data['meanRTT']
         if data['minRTT'] * beta > data['meanRTT']:
-            rtt = data['minRTT'] 
-            
+            rtt = data['minRTT']
+
         if "last" not in self.flowStaticData[key]:
             trainKey = key + "_" + str(countIndex)
             self.trainLawData[trainKey] = data
             self.trainLawData[trainKey]['rtt'] = rtt
-        
+
         if preTrainKey in self.trainLawData:
-            reward= self.calReward(data, rtt)
+            reward = self.calReward(data, rtt)
             self.trainLawData[preTrainKey]['result'] = reward
             print("\nreward: " + str(reward))
 
@@ -197,18 +189,25 @@ class OnlineServer:
 
         if preData is None:
             transTime = self.flowStaticData[key]['time'] - self.flowStaticData[key]['beginTime']
+            lost = self.flowStaticData[key]['lost']
             delivered = maxDev
-            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(self.flowStaticData[key]['beginTime']))
+            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(
+                self.flowStaticData[key]['beginTime'])
+                  + "lost: " + str(self.flowStaticData[key]['lost']))
         else:
             transTime = self.flowStaticData[key]['time'] - preData['time']
             delivered = maxDev - preData['delivered']
-            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(preData['time']))
+            lost = self.flowStaticData[key]['lost'] - preData['totalLost']
+            print("time" + str(self.flowStaticData[key]['time']) + " beginTime:" + str(preData['time']) +
+                  "lost: " + str(self.flowStaticData[key]['lost']) +
+                  "preLost: " + str(preData['totalLost']))
 
         if transTime == 0:
             throughput = float(delivered)
         else:
             throughput = float(delivered) / float(transTime)
         print(" transTime" + str(transTime) + " delivered" + str(delivered) + " through: " + str(throughput))
+        # print("cwnd: " + str(sndCwnd))
         result['Destination'] = self.flowStaticData[key]['Destination']
         result['minByte'] = np.min(byteInFlight)
         result['maxByte'] = np.max(byteInFlight)
@@ -228,12 +227,14 @@ class OnlineServer:
         result['meanSndCwnd'] = np.mean(sndCwnd)
         result['time'] = self.flowStaticData[key]['time']
         result['delivered'] = maxDev
+        # print("rtt: " + str(self.flowStaticData[key]['rtt']))
         result['meanRTT'] = np.mean(self.flowStaticData[key]['rtt'])
         result["maxRTT"] = self.flowStaticData[key]['maxRTT']
         result['minRTT'] = self.flowStaticData[key]['minRTT']
         result['mdevRTT'] = self.flowStaticData[key]['mdevRTT']
         result['retrans'] = self.flowStaticData[key]['retrans']
-        result['lost'] = self.flowStaticData[key]['lost']
+        result['lost'] = lost
+        result['totalLost'] = self.flowStaticData[key]['lost']
         result['throughput'] = throughput
         if preData is None or throughput > preData['maxThroughput']:
             result['maxThroughput'] = throughput
@@ -252,15 +253,15 @@ class OnlineServer:
                 continue
             delKeys.append(key)
             data = self.trainLawData[key]
-            termTrainData = [int(data['minRTT']), float(data['mdevRTT']), float(data['meanRTT']),float(data['rtt']),
-                             float(data['throughput']),float(data['lost']),float(data['meanPacingRate']),
+            termTrainData = [int(data['minRTT']), float(data['mdevRTT']), float(data['meanRTT']), float(data['rtt']),
+                             float(data['throughput']), float(data['lost']), float(data['meanPacingRate']),
                              float(data['result'])]
 
             trainData.append(termTrainData)
 
+
         if (trainData.__len__() > 0):
-            now = datetime.datetime.now()
-            fileName = "/usr/src/python/traindata/ndata_" + self.ccName
+            fileName = "/usr/src/python/traindata/youxian_" + self.ccName
             self.writeData(fileName, trainData)
         print("write end " + str(delKeys))
         for key in delKeys:
@@ -269,9 +270,9 @@ class OnlineServer:
         lock.release()
 
     def calReward(self, trainData, rtt):
-        print(" meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
+        print("lost: " + str(trainData['lost']) + " meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
             trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
-        reward = ((trainData['throughput']) * trainData['minRTT']) / rtt
+        reward = ((trainData['throughput'] * 1000 - 5 * trainData['lost']) * trainData['minRTT']) / rtt
         return reward
 
     def writeData(self, path, data):
@@ -314,7 +315,7 @@ def writeTrainData(path, object):
     object.bashWriteTrainData(path)
 
 
-online = OnlineServer(200, "c2tcp")
+online = OnlineServer(200, "bbr")
 tshark = tSharkThread(online)
 read = readThread(online)
 tshark.start()
