@@ -270,10 +270,12 @@ class OnlineServer:
         if preData is None:
             transTime = self.flowStaticData[key]['time'] - self.flowStaticData[key]['beginTime']
             delivered = maxDelivered
+            lost = self.flowStaticData[key]['lost']
 
         else:
             transTime = self.flowStaticData[key]['time'] - preData['time']
             delivered = maxDelivered- preData['delivered']
+            lost = self.flowStaticData[key]['lost']-preData['totalLost']
 
         if transTime == 0:
             throughput = float(delivered)
@@ -290,7 +292,9 @@ class OnlineServer:
         result['minRTT'] = self.flowStaticData[key]['minRTT']
         result['mdevRTT'] = self.flowStaticData[key]['mdevRTT']
         result['retrans'] = self.flowStaticData[key]['retrans']
-        result['lost'] = self.flowStaticData[key]['lost']
+        result['max_pacing_rate'] = self.flowStaticData[key]['max_pacing_rate']
+        result['lost'] = lost
+        result['totalLost'] = self.flowStaticData[key]['lost']
         result['throughput'] = throughput
         if preData is None or throughput > preData['maxThroughput']:
             result['maxThroughput'] = throughput
@@ -342,7 +346,7 @@ class OnlineServer:
 
         print(" meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
             trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
-        reward = ((trainData['throughput']) * trainData['minRTT']) / rtt
+        reward = ((trainData['throughput'] * 1000-trainData['lost']) * trainData['minRTT']) / (rtt*trainData['max_pacing_rate'])
         return reward
 
     def scheduleWriteJob(self):
