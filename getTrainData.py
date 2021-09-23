@@ -28,7 +28,7 @@ class OnlineServer:
         self.write = 0
         self.ccName = ccName
         self.sigma = 1
-        self.staticCount = 100
+        self.staticCount = 20
         self.trainLawData = {}
         self.flowStaticData = {}
         self.flowStaticData[0] = {}
@@ -234,6 +234,7 @@ class OnlineServer:
         result['mdevRTT'] = self.flowStaticData[key]['mdevRTT']
         result['retrans'] = self.flowStaticData[key]['retrans']
         result['lost'] = lost
+        result['max_pacing_rate'] = self.flowStaticData[key]['max_pacing_rate']
         result['totalLost'] = self.flowStaticData[key]['lost']
         result['throughput'] = throughput
         if preData is None or throughput > preData['maxThroughput']:
@@ -272,7 +273,7 @@ class OnlineServer:
     def calReward(self, trainData, rtt):
         print("lost: " + str(trainData['lost']) + " meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
             trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
-        reward = ((trainData['throughput'] * 1000 - trainData['lost']) * trainData['minRTT']) / rtt
+        reward = ((trainData['throughput'] * 1000 - trainData['lost']) * trainData['minRTT']) / (rtt*trainData['max_pacing_rate'])
         return reward
 
     def writeData(self, path, data):
