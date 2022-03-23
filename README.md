@@ -26,4 +26,4 @@ When the preparatory work is completed, you can run the recvAndSetCC.py, then An
 
 =======Distributed scene==========
 
-In order to reduce the overhead of machine learning on the end server, we split the recvAndSetCC.py into cc-server.py and recvAndSetCC_distributed.py. learning cloud server run cc-server.py to choose the suitable CC mechanism. end server run recvAndSetCC_distributed.py to obtain the CC selected by learning cloud server, and perform CC switching.
+In order to reduce the overhead of machine learning on the end server, we split the recvAndSetCC.py into cc-server.py and recvAndSetCC_distributed.py. Learning cloud server run cc-server.py to choose the suitable CC mechanism. End server run recvAndSetCC_distributed.py to obtain the CC selected by learning cloud server, and perform CC switching.
