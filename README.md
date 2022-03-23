@@ -21,5 +21,7 @@ Being able to switch CC mechainsm flexibly is very important for antelope, and e
   
   7: ./samples/bpf/load_sock_ops -l /tmp/cgroupv2/foo ./samples/bpf/tcp_changecc_kern.o &
 
-When the preparatory work is completed, you can run the recvAndSetCC.py, then Antelope which try to choose asuitable CC mechanism for different TCP flows accordingtheir in-flow 
-statistical information is runing
+When the preparatory work is completed, you can run the recvAndSetCC.py, then Antelope which try to choose a suitable CC mechanism for different TCP flows according their in-flow statistical information is runing
+=======Distributed scene==========
+
+In order to reduce the overhead of machine learning on the end server, we split the recvAndSetCC.py into cc-server.py and recvAndSetCC_distributed.py. learning cloud server run cc-server.py to choose the suitable CC mechanism. end server run recvAndSetCC_distributed.py to obtain the CC selected by learning cloud server, and perform CC switching.
