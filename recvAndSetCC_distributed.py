@@ -102,7 +102,6 @@ class OnlineServer:
         data['snd_cwnd'] = int(param[13])
         data['status'] = param[14]
         data['pacing_rate'] = param[16]
-        data['max_pacing_rate'] = param[17]
         return data
 
     def calIPPred(self, ipKey, val):
@@ -156,7 +155,14 @@ class OnlineServer:
                         self.flowStaticData[key]['lost'] = readData['lost']
                         self.flowStaticData[key]['retrans'] = readData['retrans']
                         self.flowStaticData[key]['pacing_rate'].append(int(readData['pacing_rate']))
-                        self.flowStaticData[key]['max_pacing_rate'] = int(readData['max_pacing_rate'])
+                        if ("max_pacing_rate" not in self.flowStaticData[key] or
+                                self.flowStaticData[key]['max_pacing_rate'] == 0):
+                            self.flowStaticData[key]['max_pacing_rate'] = int(readData['pacing_rate'])
+                        else:
+                            self.flowStaticData[key]['max_pacing_rate'] = max(int(readData['pacing_rate']),
+                                                                              self.flowStaticData[key][
+                                                                                  'max_pacing_rate'])
+
                         self.flowStaticData[key]['number'] += 1
                         if self.flowStaticData[key]['number'] > self.staticCount:
                             t = time.time()
@@ -302,6 +308,7 @@ class OnlineServer:
         result['mdevRTT'] = self.flowStaticData[key]['mdevRTT']
         result['retrans'] = self.flowStaticData[key]['retrans']
         result['lost'] = self.flowStaticData[key]['lost']
+        result['max_pacing_rate'] = self.flowStaticData[key]['max_pacing_rate']
         result['throughput'] = throughput
         if preData is None or throughput > preData['maxThroughput']:
             result['maxThroughput'] = throughput
@@ -356,7 +363,7 @@ class OnlineServer:
 
         print(" meanRTT: " + str(trainData['meanRTT']) + " minRTT: " + str(
             trainData['minRTT']) + " rtt: " + str(rtt) + " max: " + str(trainData['maxThroughput']))
-        reward = ((trainData['throughput']) * trainData['minRTT']) / rtt
+        reward = ((trainData['throughput'] * 1000-trainData['lost']) * trainData['minRTT']) / (rtt*trainData['max_pacing_rate'])
         return reward
 
     def scheduleWriteJob(self):
